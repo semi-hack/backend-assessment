@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -62,39 +63,31 @@ func TestEditProductHandler(t *testing.T) {
 	router := gin.Default()
 	router.PUT("/products/edit", EditProductHandler)
 
-	initialProduct := Product{
-		SKUID:      "ABC123",
-		Name:       "Initial Product",
-		Description: "This is the initial product.",
-		Price:      29.99,
-		CreatedAt:  time.Now(),
+	MerchantProductsMap = map[string]map[string]Product{
+		"merchant1": {
+			"sku123": {SKUID: "sku123", Name: "Product1", Description: "Description1", Price: 19.99, CreatedAt: time.Now()},
+		},
 	}
 
-	MerchantProductsMap["123"] = append(MerchantProductsMap["123"], initialProduct)
-
-	// Define a test case for the edit request
+	// Test
 	editRequest := Product{
-		Name:        "Updated Product",
-		Description: "This is the updated product.",
-		Price:       39.99,
+		SKUID:      "sku123",
+		Name:       "UpdatedProduct",
+		Description: "UpdatedDescription",
+		Price:      49.99,
 	}
 
-	payload, err := json.Marshal(editRequest)
+	reqBody, err := json.Marshal(editRequest)
 	assert.NoError(t, err)
 
-	req, err := http.NewRequest("PUT", "/products/edit?merchant_id=123&sku_id=ABC123", strings.NewReader(string(payload)))
-	assert.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
+	req, _ := http.NewRequest("PUT", "/products/edit?merchant_id=merchant1&sku_id=sku123", bytes.NewBuffer(reqBody))
 	w := httptest.NewRecorder()
-
 	router.ServeHTTP(w, req)
 
+	// Assertions
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var updatedProduct Product
-	err = json.Unmarshal(w.Body.Bytes(), &updatedProduct)
-	assert.NoError(t, err)
+	updatedProduct := MerchantProductsMap["merchant1"]["sku123"]
 
 	assert.Equal(t, editRequest.Name, updatedProduct.Name)
 	assert.Equal(t, editRequest.Description, updatedProduct.Description)
@@ -107,22 +100,75 @@ func TestDisplayProductsHandler(t *testing.T) {
 	router := gin.Default()
 	router.GET("/products", DisplayProductsHandler)
 
-	MerchantProductsMap = map[string][]Product{
+	MerchantProductsMap = map[string]map[string]Product{
 		"merchant1": {
-			{SKUID: "123", Name: "Product1", Description: "Description1", Price: 19.99, CreatedAt: time.Now()},
-			{SKUID: "456", Name: "Product2", Description: "Description2", Price: 29.99, CreatedAt: time.Now()},
+			"sku123": {SKUID: "sku123", Name: "Product1", Description: "Description1", Price: 19.99, CreatedAt: time.Now()},
+			"sku456": {SKUID: "sku456", Name: "Product2", Description: "Description2", Price: 29.99, CreatedAt: time.Now()},
+		},
+	}
+
+	t.Run("Retrieve Single Product", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/products?merchant_id=merchant1&sku_id=sku123", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Assertions
+		assert.Equal(t, http.StatusOK, w.Code)
+		var product Product
+		err := json.Unmarshal(w.Body.Bytes(), &product)
+		assert.NoError(t, err)
+		assert.Equal(t, "sku123", product.SKUID)
+	})
+
+	t.Run("Retrieve All Products for Merchant", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/products?merchant_id=merchant1", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Assertions
+		assert.Equal(t, http.StatusOK, w.Code)
+		var products []Product
+		err := json.Unmarshal(w.Body.Bytes(), &products)
+		assert.NoError(t, err)
+		assert.Len(t, products, 2)
+	})
+
+	t.Run("Product Not Found", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/products?merchant_id=merchant1&sku_id=sku_not_found", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Assertions
+		assert.Equal(t, http.StatusNotFound, w.Code)
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, "Product not found", response["error"])
+	})
+}
+
+func TestDeleteProductHandler(t *testing.T) {
+	// Setup
+	Initialize()
+
+	router := gin.Default()
+	router.DELETE("/product/delete", DeleteProductHandler)
+
+	MerchantProductsMap = map[string]map[string]Product{
+		"merchant1": {
+			"sku123": {SKUID: "sku123", Name: "Product1", Description: "Description1", Price: 19.99, CreatedAt: time.Now()},
 		},
 	}
 
 	// Test
-	req, _ := http.NewRequest("GET", "/products?merchant_id=merchant1", nil)
+	req, _ := http.NewRequest("DELETE", "/product/delete?merchant_id=merchant1&sku_id=sku123", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	// Assertions
-	assert.Equal(t, http.StatusOK, w.Code)
-	var products []Product
-	err := json.Unmarshal(w.Body.Bytes(), &products)
-	assert.NoError(t, err)
-	assert.Len(t, products, 2)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	// Additional Assertions
+	_, productExists := MerchantProductsMap["merchant1"]["sku123"]
+	assert.False(t, productExists)
 }

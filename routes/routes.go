@@ -9,7 +9,7 @@ import (
 func Initialize() {
 	r := gin.Default()
 
-	r.GET("/products", services.DisplayProductsHandler)
+	r.GET("/product", services.DisplayProductsHandler)
 	r.POST("/product/create", services.CreateProductHandler)
 	r.PUT("/product/edit", services.EditProductHandler)
 	r.DELETE("/product/delete", services.DeleteProductHandler)

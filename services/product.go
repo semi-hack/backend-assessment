@@ -21,44 +21,60 @@ type CreateProductRequest struct {
 	Product    Product `json:"product"`
 }
 
-var MerchantProductsMap map[string][]Product
+var MerchantProductsMap map[string]map[string]Product
 
 func Initialize() {
-	MerchantProductsMap = make(map[string][]Product)
+	MerchantProductsMap = make(map[string]map[string]Product)
 }
 
 func CreateProductHandler(c *gin.Context) {
 	var createRequest CreateProductRequest
+	
+
 	if err := c.BindJSON(&createRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
 	merchantID := createRequest.MerchantID
+
+	if _, exists := MerchantProductsMap[merchantID]; !exists {
+		MerchantProductsMap[merchantID] = make(map[string]Product)
+	}
+
 	product := createRequest.Product
 	product.CreatedAt = time.Now()
 
-	MerchantProductsMap[merchantID] = append(MerchantProductsMap[merchantID], product)
+	MerchantProductsMap[merchantID][product.SKUID] = product
 
 	c.JSON(http.StatusCreated, product)
 }
 
 func DisplayProductsHandler(c *gin.Context) {
 	merchantID := c.Query("merchant_id")
-	products, found := MerchantProductsMap[merchantID]
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Merchant not found"})
-		return
-	}
+	skuID := c.Query("sku_id")
 
-	c.JSON(http.StatusOK, products)
+	if skuID != "" {
+		product, found := MerchantProductsMap[merchantID][skuID]
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		c.JSON(http.StatusOK, product)
+	} else {
+		products := make([]Product, 0, len(MerchantProductsMap[merchantID]))
+		for _, product := range MerchantProductsMap[merchantID] {
+			products = append(products, product)
+		}
+		c.JSON(http.StatusOK, products)
+	}
 }
 
 func EditProductHandler(c *gin.Context) {
 	merchantID := c.Query("merchant_id")
 	skuID := c.Query("sku_id")
 
-	products, found := MerchantProductsMap[merchantID]
+	existingProduct, found := MerchantProductsMap[merchantID][skuID]
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Merchant not found"})
 		return
@@ -70,33 +86,23 @@ func EditProductHandler(c *gin.Context) {
 		return
 	}
 
-	// Find and update the product with the matching SKU ID
-	for i, p := range products {
-		if p.SKUID == skuID {
-			updatedProduct.CreatedAt = p.CreatedAt
-			products[i] = updatedProduct
-			c.JSON(http.StatusOK, products[i])
-			return
-		}
-	}
+	existingProduct.Name = updatedProduct.Name
+	existingProduct.Description = updatedProduct.Description
+	existingProduct.Price = updatedProduct.Price
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+	MerchantProductsMap[merchantID][skuID] = existingProduct
+
+	c.JSON(http.StatusOK, existingProduct)
 }
 
 func DeleteProductHandler(c *gin.Context) {
 	merchantID := c.Query("merchant_id")
 	skuID := c.Query("sku_id")
 
-	products, found := MerchantProductsMap[merchantID]
-	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Merchant not found"})
-		return
-	}
-
-	// Find and remove the product with the matching SKU ID
-	for i, p := range products {
-		if p.SKUID == skuID {
-			MerchantProductsMap[merchantID] = append(products[:i], products[i+1:]...)
+	if products, merchantExists := MerchantProductsMap[merchantID]; merchantExists {
+		if _, productExists := products[skuID]; productExists {
+			// Delete the product
+			delete(products, skuID)
 			c.Status(http.StatusNoContent)
 			return
 		}
